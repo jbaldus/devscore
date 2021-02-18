@@ -355,6 +355,7 @@ class TestSuite:
                 if not print_if_failed and not result:
                     continue
                 emoji = ":green_heart:" if result else ":no_entry_sign:"
+                name = f"[green]{name}" if result else f"[red]{name}"
                 table.add_row(f"[{emoji}]", name, msg)
             if self.name == "":
                 title = Text(self.__doc__, justify='center')
