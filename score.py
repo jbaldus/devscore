@@ -404,7 +404,6 @@ def TestSoftwareInstallations():
     tasks)
     
 
-
 def TestPostgresSetup():
     return TestSuite(
     """
