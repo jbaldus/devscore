@@ -18,6 +18,11 @@ from socket import gethostname
 try:
     import rich
     from rich import print
+    from rich import box
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.text import Text
+    from rich.console import Console, RenderGroup, RenderResult
 
     def bold(text):
         return f"[bold yellow]{text}[/bold yellow]"
@@ -243,7 +248,7 @@ def test_2_processors():
 
 
 class Task:
-    def __init__(self, name, function, arguments=None, expected=True, failmsg=None):
+    def __init__(self, name, function, arguments=None, expected=True, failmsg=None, print_if_failed=True):
         self.name = name
         self.function = function
         if isinstance(arguments, list) or isinstance(arguments, tuple):
@@ -255,7 +260,7 @@ class Task:
             self.failmsg = f"Function {self.function.__name__} with arguments {self.args} was not {expected} as expected."
         else:
             self.failmsg = failmsg
-        self.print_if_failed = True
+        self.print_if_failed = print_if_failed
 
 
     def check(self):
@@ -264,6 +269,12 @@ class Task:
         else:
             value = (self.function(*self.args) == self.expected)
         return value
+
+
+    def report_table(self):
+        result = self.check()
+        msg = "" if result else self.failmsg
+        return result, self.name, msg, self.print_if_failed
 
 
     def report(self):
@@ -275,7 +286,8 @@ class Task:
 
 
 class TestSuite:
-    def __init__(self, tasks=None):
+    def __init__(self, name="", tasks=None):
+        self.name = name
         self.tasks = tasks if tasks is not None else []
         self.results = []
 
@@ -289,106 +301,146 @@ class TestSuite:
         results = []
         for task in self.tasks:
             result, report = task.report()
-            results.append( (task.print_if_failed, result, report) )
+            results.append( (result, report, task.print_if_failed) )
         
-        if not self._is_secret() or any([x[1] for x in results]):
+        successes = [x[0] for x in results]
+        
+        if not self._is_secret() or any(successes):
             print(self.__doc__)
             for pif, result, report in results:
                 if not result and not pif:
                     continue
                 print(report)
-            successes = [x[1] for x in results].count(True)
-            summary_line = f"{successes} Successful out of {len(results)}"
+            success_num = successes.count(True)
+            summary_line = f"{success_num} Successful out of {len(results)}"
             print(summary_line)
-        return [x[1] for x in results]
+        return successes
 
 
-class TestSystemSpecifications(TestSuite):
+    def rich_report(self):
+        results = [task.report_table() for task in self.tasks]
+        successes = [x[0] for x in results]
+
+        if not self._is_secret() or any(successes):
+            table = Table.grid(expand=True, padding=(0, 2))
+            table.add_column()
+            table.add_column()
+            table.add_column(style='red', overflow='fold')
+            for result, name, msg, print_if_failed in results:
+                if not print_if_failed and not result:
+                    continue
+                emoji = ":green_heart:" if result else ":no_entry_sign:"
+                table.add_row(f"[{emoji}]", name, msg)
+            if self.name == "":
+                title = Text(self.__doc__, justify='center')
+            else:
+                title = Text(self.name, justify='center')
+            success_num = successes.count(True)
+            summary_line = Text(f"{success_num} Successful out of {len(results)}", justify='right')
+            panel_text = RenderGroup(title, table, '', summary_line)
+            border_style = "green" if all(successes) else "red"
+            panel = Panel(panel_text, highlight=True, border_style=border_style, expand=False, width=100)
+            print(panel)
+        return successes
+
+
+
+def TestSystemSpecifications():
+    return TestSuite(
     """
     ================================================
     =               VM SPECIFICATION               =
     ================================================
-    """
-    def __init__(self):
-
-        self.tasks = [
-            Task("Memory Size", test_3G_of_memory, failmsg="Not 3G of memory"),
-            Task("Processors", test_2_processors, failmsg="Should have 2 processors"),
-            Task("Home Partition Exists", part_exists, "/home", failmsg="There is no separate home partition"),
-            Task("Root Partition Size", check_partition_size, ["/", ROOT_SIZE_GB], failmsg="Root partition is wrong size"),
-            Task("Home Partition Size", check_partition_size, ["/home", HOME_SIZE_GB], failmsg="Home partition is wrong size"),
-            Task("Root Partition Filesystem", part_fs, "/", expected="ext4", failmsg="Root partition should be ext4 filesystem"),
-            Task("Home Partition Filesystem", part_fs, "/home", expected="ext4", failmsg="Home partition should be ext4 filesystem"),
-            Task("Hostname set", gethostname, expected="newguyscomp", failmsg="Hostname should be 'newguyscomp'"),
-        ]
+    """,
+    tasks = [
+        Task("Memory Size", test_3G_of_memory, failmsg="Not 3G of memory"),
+        Task("Processors", test_2_processors, failmsg="Should have 2 processors"),
+        Task("Home Partition Exists", part_exists, "/home", failmsg="There is no separate home partition"),
+        Task("Root Partition Size", check_partition_size, ["/", ROOT_SIZE_GB], failmsg="Root partition is wrong size"),
+        Task("Home Partition Size", check_partition_size, ["/home", HOME_SIZE_GB], failmsg="Home partition is wrong size"),
+        Task("Root Partition Filesystem", part_fs, "/", expected="ext4", failmsg="Root partition should be ext4 filesystem"),
+        Task("Home Partition Filesystem", part_fs, "/home", expected="ext4", failmsg="Home partition should be ext4 filesystem"),
+        Task("Hostname set", gethostname, expected="newguyscomp", failmsg="Hostname should be 'newguyscomp'"),
+    ])
 
 
-class TestUserSetup(TestSuite):
+def TestUserSetup():
+    return TestSuite(
     """
     ================================================
     =              USER CONFIGURATION              =
     ================================================
-    """
-    def __init__(self):
-        self.tasks = [
-            Task("Main user has 'admin' in username", main_user_name_ish, ["admin", 1000], failmsg="Main user should be 'admin'-ish"),
-            Task("Admin password", check_password, [main_user(1000), "slotHMammoth7!"], failmsg="Admin password should be 'slotHMammoth7!"),
-            Task("Newguy User Exists", is_user_in_passwd, "newguy", failmsg="User 'newguy' doesn't exist"),
-            Task("Newguy password", check_password, ["newguy", "newguy#5%"], failmsg="Newguy's password should be 'newguy#5%"),
-            Task("Newguy's sudo commands", get_user_sudo_perms, "newguy", SUDO_COMMANDS, failmsg="Newguy's sudo commands incorrect"),
-        ]
+    """,
+    tasks = [
+        Task("Main user has 'admin' in username", main_user_name_ish, ["admin", 1000], failmsg="Main user should be 'admin'-ish"),
+        Task("Admin password", check_password, [main_user(1000), "slotHMammoth7!"], failmsg="Admin password should be 'slotHMammoth7!"),
+        Task("Newguy User Exists", is_user_in_passwd, "newguy", failmsg="User 'newguy' doesn't exist"),
+        Task("Newguy password", check_password, ["newguy", "newguy#5%"], failmsg="Newguy's password should be 'newguy#5%"),
+        Task("Newguy's sudo commands", get_user_sudo_perms, "newguy", SUDO_COMMANDS, failmsg="Newguy's sudo commands incorrect"),
+    ])
 
 
-class TestSoftwareInstallations(TestSuite):
+def TestSoftwareInstallations():
+    tasks = [
+        Task("Software is updated", is_software_uptodate,  failmsg="Software is not all upgraded"),
+        Task("Yakuake or Guake installed", is_one_of_program_installed, ['yakuake', 'guake'], failmsg=f"Yakuake or Guake should be installed, depending on your desktop"),
+    ]
+    for prog in ['git', 'vim', 'bpython', 'nodejs', 'code']:
+        tasks.append(
+            Task(f"Program {prog} installed", is_program_installed, prog, failmsg=f"Program {prog} should be installed")
+        )
+    tasks.append(
+        Task("Cron job set to scan home", is_cron_job_set, "clam", failmsg="Cron job should be set to scan home directory every day")
+    )
+    return TestSuite(
     """
     =================================================
     =             SOFTWARE INSTALLATION             = 
     =================================================
-    """
-    def __init__(self):
-        self.tasks = [
-            Task("Software is updated", is_software_uptodate,  failmsg="Software is not all upgraded"),
-            Task("Yakuake or Guake installed", is_one_of_program_installed, ['yakuake', 'guake'], failmsg=f"Yakuake or Guake should be installed, depending on your desktop"),
-        ]
-        for prog in ['git', 'vim', 'bpython', 'nodejs', 'code']:
-            self.tasks.append(
-                Task(f"Program {prog} installed", is_program_installed, prog, failmsg=f"Program {prog} should be installed")
-            )
-        self.tasks.append(
-            Task("Cron job set to scan home", is_cron_job_set, "clam", failmsg="Cron job should be set to scan home directory every day")
-        )
+    """,
+    tasks)
+    
 
 
-class TestPostgresSetup(TestSuite):
+def TestPostgresSetup():
+    return TestSuite(
     """
     =================================================
     =            DATABASE CONFIGURATION             = 
     =================================================
-    """
-    def __init__(self):
-        self.tasks = [
-            Task("Postgres service should be running", is_service_running, "postgresql", failmsg="Postgres server not running"),
-            Task("Database user newguydb exists", pg_user_exists, "newguydb", failmsg="Postgres should have a user named newguydb"),
-            Task("Database user has correct password", pg_user_pwhash, "newguydb", PG_PASSWD_HASH, failmsg="Postgres user newguydb should have password 'postgresRulez!"),
-            Task("Database widget_test exists", pg_database_exists, "widget_test", failmsg="Postgres database 'widget_test' should be created"),
-            Task("Database owner correct", pg_database_owner, ["widget_test", "newguydb"], failmsg="Postgres database 'widget_test' should be owned by 'newguydb'"),
-        ]
+    """,
+    tasks = [
+        Task("Postgres service should be running", is_service_running, "postgresql", failmsg="Postgres server not running"),
+        Task("Database user newguydb exists", pg_user_exists, "newguydb", failmsg="Postgres should have a user named newguydb"),
+        Task("Database user has correct password", pg_user_pwhash, "newguydb", PG_PASSWD_HASH, failmsg="Postgres user newguydb should have password 'postgresRulez!"),
+        Task("Database widget_test exists", pg_database_exists, "widget_test", failmsg="Postgres database 'widget_test' should be created"),
+        Task("Database owner correct", pg_database_owner, ["widget_test", "newguydb"], failmsg="Postgres database 'widget_test' should be owned by 'newguydb'"),
+    ])
 
 
-class TestBonusPoints(TestSuite):
+def TestBonusPoints():
+    return TestSuite(
     """
     =================================================
     =                 BONUS POINTS                  = 
     =================================================
-    """
-    def __init__(self):
-        self.tasks = [
-            Task("Firewall Enabled", is_ufw_enabled, failmsg="Firewall not enabled"),
-            Task("Check for updates daily", is_daily_update_checked, failmsg="Should automatically check for updates every day"),
-            Task("Auto-upgrade", is_auto_upgrade_enabled, failmsg="Should automatically upgrade")
-        ]
+    """,
+    tasks = [
+        Task("Firewall Enabled", is_ufw_enabled, failmsg="Firewall not enabled", print_if_failed = False),
+        Task("Check for updates daily", is_daily_update_checked, failmsg="Should automatically check for updates every day", print_if_failed = False),
+        Task("Auto-upgrade", is_auto_upgrade_enabled, failmsg="Should automatically upgrade", print_if_failed = False)
+    ])
 
 
+
+#Requirements
+MEMORY_GB = 3
+PROCESSORS = 2
+HOME_SIZE_GB = 5
+ROOT_SIZE_GB = 20
+PG_PASSWD_HASH = 'md51efb824c86d1810d4dc8cec3d54148a2'
+SUDO_COMMANDS = set(['/usr/bin/apt update', '/usr/bin/apt upgrade', '/usr/bin/systemctl start openvpn'])
+NODE_VERSION = 14
 
 
 
@@ -400,15 +452,7 @@ if __name__ == "__main__":
                 it must be run with elevated privileges. Try again with 'sudo'.
             """)
         exit()
-    
-    #Requirements
-    MEMORY_GB = 3
-    PROCESSORS = 2
-    HOME_SIZE_GB = 5
-    ROOT_SIZE_GB = 20
-    PG_PASSWD_HASH = 'md51efb824c86d1810d4dc8cec3d54148a2'
-    SUDO_COMMANDS = set(['/usr/bin/apt update', '/usr/bin/apt upgrade', '/usr/bin/systemctl start openvpn'])
-    NODE_VERSION = 14
+        
 
     tests = [
         TestSystemSpecifications(),
@@ -419,4 +463,4 @@ if __name__ == "__main__":
     ]
 
     for test in tests:
-        test.report()
+        test.rich_report()
