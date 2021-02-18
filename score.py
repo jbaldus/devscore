@@ -191,7 +191,10 @@ def is_ufw_enabled():
 def is_cron_job_set(search_text, frequency = "daily"):
     grep = run(f"grep -Rl '{search_text}' /etc/cron.{frequency}").strip()
     executable = os.access(grep, os.X_OK)
-    return grep != "" and executable
+    if grep != "" and executable:
+        return True
+    grep = run(f"grep {search_text} /etc/crontab")
+    return grep != ""
 
 
 def is_daily_update_checked():
@@ -352,7 +355,7 @@ class TestSoftwareInstallations(TestSuite):
                 Task(f"Program {prog} installed", is_program_installed, prog, failmsg=f"Program {prog} should be installed")
             )
         self.tasks.append(
-            Task("Cron job set to scan home", is_cron_job_set, "clamscan", failmsg="Cron job should be set to scan home directory every day")
+            Task("Cron job set to scan home", is_cron_job_set, "clam", failmsg="Cron job should be set to scan home directory every day")
         )
 
 
