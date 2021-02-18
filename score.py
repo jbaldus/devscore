@@ -11,12 +11,30 @@ import math
 import re 
 import glob
 from multiprocessing import cpu_count
-import psutil
 from socket import gethostname
 
 
 try:
-    import rich
+    import psutil
+except ImportError:
+    help_msg = """
+This program requires a couple of Python packages to be installed using pip. 
+You can take care of installing everything you need with these commands:
+
+sudo apt install python3-pip (on Debian-based systems)
+sudo dnf install python3-pip (on Fedora-based systems)
+sudo pacman -S python-pip    (on Arch-based systems)
+
+And then run:
+
+sudo pip install psutil rich
+    """
+    print(help_msg)
+    exit()
+
+
+
+try:
     from rich import print
     from rich import box
     from rich.table import Table
@@ -24,10 +42,14 @@ try:
     from rich.text import Text
     from rich.console import Console, RenderGroup, RenderResult
 
+    use_rich = True
+
     def bold(text):
         return f"[bold yellow]{text}[/bold yellow]"
 
 except ImportError:
+    use_rich = False
+
     def bold(text):
         return text
 
@@ -326,7 +348,7 @@ class TestSuite:
 
         if not self._is_secret() or any(successes):
             table = Table.grid(expand=True, padding=(0, 2))
-            table.add_column(max_width=5)
+            table.add_column()
             table.add_column()
             table.add_column(style='red', overflow='fold', ratio=1)
             for result, name, msg, print_if_failed in results:
