@@ -326,9 +326,9 @@ class TestSuite:
 
         if not self._is_secret() or any(successes):
             table = Table.grid(expand=True, padding=(0, 2))
+            table.add_column(max_width=5)
             table.add_column()
-            table.add_column()
-            table.add_column(style='red', overflow='fold')
+            table.add_column(style='red', overflow='fold', ratio=1)
             for result, name, msg, print_if_failed in results:
                 if not print_if_failed and not result:
                     continue
@@ -342,7 +342,7 @@ class TestSuite:
             summary_line = Text(f"{success_num} Successful out of {len(results)}", justify='right')
             panel_text = RenderGroup(title, table, '', summary_line)
             border_style = "green" if all(successes) else "red"
-            panel = Panel(panel_text, highlight=True, border_style=border_style, expand=False, width=100)
+            panel = Panel(panel_text, highlight=True, border_style=border_style, width=100)
             print(panel)
         return successes
 
