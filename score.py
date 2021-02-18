@@ -143,12 +143,23 @@ def is_one_of_program_installed(*programs):
 
 
 def is_program_uptodate(program):
-    result = run(f"apt list {program}")
-    return not "upgradable" in result
+    if is_program_installed("apt"):
+        result = run(f"apt list {program}")
+        return not "upgradable" in result
+    elif is_program_installed("pacman"):
+        result = run(f"pacman -Qu {program}")
+        return result == ""
+    else:
+        raise NotImplementedError("Scoring can only run on systems with apt or pacman")
 
 
 def is_software_uptodate():
-    result = run("apt list --upgradable")
+    if is_program_installed("apt"):
+        result = run("apt list --upgradable")
+    elif is_program_installed("pacman"):
+        result = run("pacman -Qu")
+    else:
+        raise NotImplementedError("Scoring can only run on systems with apt or pacman")
     return result.strip() != ""
 
 
