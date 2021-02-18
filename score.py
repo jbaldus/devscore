@@ -1,4 +1,4 @@
-#!/usr/bin/python3.6
+#!/usr/bin/python3
 
 import crypt
 import subprocess
@@ -48,9 +48,12 @@ def check_password(user, pw):
     userline = run(f"grep '^{user}' /etc/shadow")
     userfields = userline.split(':')
     users=dict((i.split(':')[0], i.split(':')[1]) for i in open('/etc/shadow').readlines())
-    _, alg, salt, hash = users[user].split('$')
+    shadow_line = users.get(user, None)
+    if shadow_line is None:
+        return False
+    _, alg, salt, hash = shadow_line.split('$')
     calculated_shadow_line = crypt.crypt(pw, f"${alg}${salt}$")
-    return calculated_shadow_line == users[user]
+    return calculated_shadow_line == shadow_line
 
 
 def main_user(uid):
@@ -234,7 +237,7 @@ def part_exists(mountpoint):
 
 def check_partition_size(mountpoint, size):
     total_size = GiB(psutil.disk_usage(mountpoint).total)
-    return math.isclose(size, total_size, rel_tol = 0.1) or (math.isclose(size, total_size, rel_tol = 0.2) and total_size > size)
+    return math.isclose(size, total_size, rel_tol = 0.2) or (math.isclose(size, total_size, rel_tol = 0.2) and total_size > size)
 
 
 def test_3G_of_memory():
