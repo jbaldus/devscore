@@ -170,6 +170,12 @@ def pg_user_pwhash(user):
 def is_program_installed(program):
     return shutil.which(program) != ''
 
+def which(command):
+    split_command = shlex.split(command)
+    cmd = split_command[0]
+    args = " ".join(split_command[1:])
+    return f"{shutil.which(cmd)} {args}"
+
 
 def is_one_of_program_installed(*programs):
     return any(map(is_program_installed, programs))
@@ -464,7 +470,7 @@ PROCESSORS = 2
 HOME_SIZE_GB = 5
 ROOT_SIZE_GB = 20
 PG_PASSWD_HASH = 'md51efb824c86d1810d4dc8cec3d54148a2'
-SUDO_COMMANDS = set(['/usr/bin/apt update', '/usr/bin/apt upgrade', '/usr/bin/systemctl start openvpn'])
+SUDO_COMMANDS = set(map(which,['apt update', 'apt upgrade', 'systemctl start openvpn']))
 NODE_VERSION = 14
 
 
