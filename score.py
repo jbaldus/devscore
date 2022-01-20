@@ -7,6 +7,7 @@ import shutil
 import datetime
 import os
 import pwd
+import spwd
 import math
 import re 
 import glob
@@ -27,7 +28,7 @@ sudo pacman -S python-pip    (on Arch-based systems)
 
 And then run:
 
-sudo pip install psutil rich
+sudo pip install -r requirements.txt
     """
     print(help_msg)
     exit()
@@ -67,15 +68,12 @@ def run(command, is_shell=False):
 
 
 def check_password(user, pw):
-    userline = run(f"grep '^{user}' /etc/shadow")
-    userfields = userline.split(':')
-    users=dict((i.split(':')[0], i.split(':')[1]) for i in open('/etc/shadow').readlines())
-    shadow_line = users.get(user, None)
-    if shadow_line is None:
+    if not is_user(user):
         return False
-    _, alg, salt, hash = shadow_line.split('$')
+    userfields = spwd.getspnam(user)
+    _, alg, salt, hash = userfields.sp_pwdp.split('$')
     calculated_shadow_line = crypt.crypt(pw, f"${alg}${salt}$")
-    return calculated_shadow_line == shadow_line
+    return calculated_shadow_line == userfields.sp_pwdp
 
 
 def main_user(uid):
@@ -83,11 +81,23 @@ def main_user(uid):
 
 
 def main_user_name_ish(user, uid):
-    username = main_user(uid)
-    return user in username
+    try:
+        username = main_user(uid)
+        return user in username
+    except KeyError:
+        return False
 
+
+def is_user(user):
+    try:
+        pwd.getpwnam(user)
+        return True
+    except KeyError:
+        return False
 
 def get_user_sudo_perms(user):
+    if not is_user(user):
+        return set()
     sudo_line = run(f"sudo -l -U {user}").splitlines()[-1]
     commands = re.search(r'\(.*?\) (?:NOPASSWD: )?(.*)', sudo_line)
     if not commands:
@@ -96,20 +106,12 @@ def get_user_sudo_perms(user):
     return set(map(lambda x: x.strip(), commands.split(',')))
 
 
-def is_user_in_passwd(user):
-    pass_line = run(f"grep {user} /etc/passwd")
-    return pass_line.strip != ''
-
-
-def is_user_home_removed(user):
+def is_user_home_existing(user):
     try:
-        return not os.path.isdir(f"/home/{user}")
-    except:
-        return True
-
-
-def is_user_removed(user):
-    return is_user_home_removed(user) and not is_user_in_passwd(user)
+        user_password = pwd.getpwnam(user)
+        return os.path.isdir(user_password.pw_dir)
+    except KeyError:
+        return False
 
 
 def is_root_login_disabled():
@@ -124,8 +126,8 @@ def is_root_ssh_login_disabled():
     return not is_yes
 
 
-def is_user_in_admin(user):
-    return 'sudo' in run(f"groups {user}")
+def is_user_in_admin(user, admin_group='sudo'):
+    return admin_group in run(f"groups {user}")
 
 
 def get_partition_size_bytes(partition):
@@ -219,6 +221,7 @@ def is_service_removed(service):
 
 
 def is_ufw_enabled():
+    # Only for Ubuntu-ish distros
     enabled_line = run("ufw status")
     is_enabled = "inactive" not in enabled_line
     return is_enabled
@@ -234,11 +237,13 @@ def is_cron_job_set(search_text, frequency = "daily"):
 
 
 def is_daily_update_checked():
+    # Only works for Debian-based distros
     update_package_list = run("grep 'APT::Periodic::Update-Package_Lists' /etc/apt/apt.conf.d/*")
     return '1' in update_package_list
 
 
 def is_auto_upgrade_enabled():
+    # Only works for Debian-based distros
     unattended_upgrade = run("grep 'APT::Periodic::Unattended-Upgrade' /etc/apt/apt.conf.d/*")
     return '1' in unattended_upgrade
 
@@ -329,6 +334,12 @@ class TestSuite:
 
 
     def report(self):
+        if use_rich:
+            self.rich_report()
+        else:
+            self.plain_report()
+
+    def plain_report(self):
         results = []
         for task in self.tasks:
             result, report = task.report()
@@ -406,8 +417,8 @@ def TestUserSetup():
     tasks = [
         Task("Main user has 'admin' in username", main_user_name_ish, ["admin", 1000], failmsg="Main user should be 'admin'-ish"),
         Task("Admin password", check_password, [main_user(1000), "slotHMammoth7!"], failmsg="Admin password should be 'slotHMammoth7!"),
-        Task("Newguy User Exists", is_user_in_passwd, "newguy", failmsg="User 'newguy' doesn't exist"),
-        Task("Newguy password", check_password, ["newguy", "newguy#5%"], failmsg="Newguy's password should be 'newguy#5%"),
+        Task("Newguy User Exists", is_user, "newguy", failmsg="User 'newguy' doesn't exist"),
+        Task("Newguy password", check_password, ["newguy", "guynew#5%"], failmsg="Newguy's password should be 'guynew#5%"),
         Task("Newguy's sudo commands", get_user_sudo_perms, "newguy", SUDO_COMMANDS, failmsg="Newguy's sudo commands incorrect"),
     ])
 
@@ -422,7 +433,7 @@ def TestSoftwareInstallations():
             Task(f"Program {prog} installed", is_program_installed, prog, failmsg=f"Program {prog} should be installed")
         )
     tasks.append(
-        Task("Cron job set to scan home", is_cron_job_set, "clam", failmsg="Cron job should be set to scan home directory every day")
+        Task("Cron job set to scan home", is_cron_job_set, "clamscan", failmsg="Cron job should be set to scan home directory every day")
     )
     return TestSuite(
     """
@@ -470,7 +481,7 @@ PROCESSORS = 2
 HOME_SIZE_GB = 5
 ROOT_SIZE_GB = 20
 PG_PASSWD_HASH = 'md51efb824c86d1810d4dc8cec3d54148a2'
-SUDO_COMMANDS = set(map(which,['apt update', 'apt upgrade', 'systemctl start openvpn']))
+SUDO_COMMANDS = set(map(which,['/usr/bin/apt update', '/usr/bin/apt upgrade', '/usr/bin/systemctl restart postgresql']))
 NODE_VERSION = 14
 
 
@@ -494,4 +505,4 @@ if __name__ == "__main__":
     ]
 
     for test in tests:
-        test.rich_report()
+        test.report()
